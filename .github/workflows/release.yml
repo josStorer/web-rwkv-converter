@@ -1,0 +1,94 @@
+on:
+  push:
+    tags:
+      - 'v*' # Run when tag matches v*, i.e. v1.0, v20.15.10
+
+name: Release
+
+permissions:
+  contents: write
+env:
+  GH_TOKEN: ${{ github.token }}
+  RELEASE_BIN: web-rwkv-converter
+  WINDOWS_TARGET: x86_64-pc-windows-msvc
+  MACOS_TARGET: aarch64-apple-darwin
+  LINUX_TARGET: x86_64-unknown-linux-gnu
+
+jobs:
+  create-draft:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+      - run: gh release create ${{github.ref_name}} -d -t ${{github.ref_name}}
+
+  build:
+    name: Build artifacts
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        build: [linux, macos, windows]
+        include:
+          - build: linux
+            os: ubuntu-20.04
+            rust: stable
+          - build: macos
+            os: macos-13
+            rust: stable
+          - build: windows
+            os: windows-2022
+            rust: stable
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          override: true
+          target: wasm32-unknown-unknown
+
+      - name: Install tools (Linux)
+        if: matrix.build == 'linux'
+        run: |
+          sudo apt-get update -y --allow-releaseinfo-change
+          sudo apt-get install libudev-dev
+          sudo apt-get install libasound2-dev
+
+      - name: Build (Linux)
+        if: matrix.build == 'linux'
+        run: |
+          rustup target add ${{ env.LINUX_TARGET }}
+          cargo build --release --target ${{ env.LINUX_TARGET }}
+      - name: Build (MacOS)
+        if: matrix.build == 'macos'
+        run: |
+          rustup target add ${{ env.MACOS_TARGET }}
+          cargo build --release --target ${{ env.MACOS_TARGET }}
+      - name: Build (Windows)
+        if: matrix.build == 'windows'
+        run: cargo build --release
+
+      - name: Create artifact directory
+        run: |
+          mkdir dist
+      - name: Create tarball (Linux)
+        if: matrix.build == 'linux'
+        run: |
+          mv ./target/${{ env.LINUX_TARGET }}/release/${{ env.RELEASE_BIN }} ./dist/${{ env.RELEASE_BIN }}_linux_x86_64
+          gh release upload ${{github.ref_name}} ./dist/${{ env.RELEASE_BIN }}_linux_x86_64
+      - name: Create tarball (Windows)
+        if: matrix.build == 'windows'
+        run: |
+          mv ./target/release/${{ env.RELEASE_BIN }}.exe ./dist/${{ env.RELEASE_BIN }}_windows_x86_64.exe
+          gh release upload ${{github.ref_name}} ./dist/${{ env.RELEASE_BIN }}_windows_x86_64.exe
+      - name: Create tarball (MacOS)
+        if: matrix.build == 'macos'
+        run: |
+          mv ./target/${{ env.MACOS_TARGET }}/release/${{ env.RELEASE_BIN }} ./dist/${{ env.RELEASE_BIN }}_darwin_aarch64
+          gh release upload ${{github.ref_name}} ./dist/${{ env.RELEASE_BIN }}_darwin_aarch64
+
+  publish-release:
+    runs-on: ubuntu-22.04
+    needs: [ build ]
+    steps:
+      - uses: actions/checkout@v3
+      - run: gh release edit ${{github.ref_name}} --draft=false
