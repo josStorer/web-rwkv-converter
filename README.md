@@ -1,1 +1,1 @@
-a fork of https://github.com/cryscan/web-rwkv/tree/main/crates/web-rwkv-converter
+a fork of https://github.com/cgisky1980/ai00_rwkv_server/blob/main/src/bin/converter.rs
